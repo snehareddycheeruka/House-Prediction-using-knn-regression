@@ -1,210 +1,438 @@
+# ---------------------------------------------------
+# IMPORT LIBRARIES
+# ---------------------------------------------------
+
 import streamlit as st
 import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
+import seaborn as sns
 
+from sklearn.datasets import fetch_california_housing
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import StandardScaler
 from sklearn.neighbors import KNeighborsRegressor
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.metrics import (
+    mean_squared_error,
+    mean_absolute_error,
+    r2_score
+)
 
-# ---------------------------
+# ---------------------------------------------------
 # PAGE CONFIG
-# ---------------------------
-st.set_page_config(layout="wide")
+# ---------------------------------------------------
 
-st.title("💳 Loan Prediction Dashboard")
+st.set_page_config(
+    page_title="House Price Prediction",
+    page_icon="🏠",
+    layout="wide"
+)
 
-# ---------------------------
-# FILE UPLOAD
-# ---------------------------
-uploaded_file = st.file_uploader("Upload Dataset", type=["csv"])
+# ---------------------------------------------------
+# CUSTOM CSS
+# ---------------------------------------------------
 
-if uploaded_file is None:
-    st.warning("Please upload dataset")
-    st.stop()
+st.markdown("""
+<style>
 
-# ---------------------------
-# LOAD DATA (CACHED)
-# ---------------------------
+/* Background */
+
+.main {
+    background-color: #f5f7fb;
+}
+
+/* Title */
+
+.title {
+    text-align: center;
+    font-size: 50px;
+    font-weight: 700;
+    color: #1d3557;
+}
+
+.subtitle {
+    text-align: center;
+    font-size: 20px;
+    color: #6c757d;
+    margin-bottom: 30px;
+}
+
+/* Headers */
+
+h1, h2, h3 {
+    color: #1d3557;
+}
+
+/* Sidebar */
+
+section[data-testid="stSidebar"] {
+    background-color: #eef2f7;
+}
+
+/* Labels */
+
+.stNumberInput label {
+    font-size: 20px !important;
+    font-weight: 700 !important;
+    color: #0b2545 !important;
+}
+
+/* Input Box */
+
+.stNumberInput div[data-baseweb="input"] {
+    border-radius: 10px !important;
+    border: 2px solid #dce3ea !important;
+    background-color: white !important;
+}
+
+/* Input Text */
+
+.stNumberInput input {
+    font-size: 18px !important;
+    font-weight: 500 !important;
+    color: black !important;
+}
+
+/* Buttons */
+
+.stButton > button {
+    width: 100%;
+    height: 52px;
+    border-radius: 10px;
+    background-color: #1d3557;
+    color: white;
+    font-size: 18px;
+    font-weight: bold;
+    border: none;
+}
+
+/* Metrics */
+
+[data-testid="metric-container"] {
+    background-color: white;
+    padding: 15px;
+    border-radius: 12px;
+    box-shadow: 0px 2px 10px rgba(0,0,0,0.08);
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+# ---------------------------------------------------
+# TITLE
+# ---------------------------------------------------
+
+st.markdown(
+    '<p class="title">House Price Prediction System</p>',
+    unsafe_allow_html=True
+)
+
+st.markdown(
+    '<p class="subtitle">Machine Learning Prediction using KNN Regression</p>',
+    unsafe_allow_html=True
+)
+
+st.markdown("---")
+
+# ---------------------------------------------------
+# LOAD DATASET
+# ---------------------------------------------------
+
 @st.cache_data
-def load_data(file):
-    return pd.read_csv(file)
+def load_data():
 
-df = load_data(uploaded_file)
+    housing = fetch_california_housing()
 
-# ---------------------------
-# PREPROCESSING (CACHED)
-# ---------------------------
-@st.cache_data
-def preprocess(df):
+    X = pd.DataFrame(
+        housing.data,
+        columns=housing.feature_names
+    )
 
-    df = df.dropna()
+    y = pd.Series(housing.target)
 
-    # Fix DATE issue
-    if "date" in df.columns:
-        df["date"] = pd.to_datetime(df["date"])
-        df["year"] = df["date"].dt.year
-        df["month"] = df["date"].dt.month
-        df["day"] = df["date"].dt.day
-        df.drop("date", axis=1, inplace=True)
+    return X, y
 
-    # Encode
-    df = pd.get_dummies(df, drop_first=True)
+X, y = load_data()
 
-    return df
+# ---------------------------------------------------
+# TRAIN TEST SPLIT
+# ---------------------------------------------------
 
-df = preprocess(df)
+X_train, X_test, y_train, y_test = train_test_split(
+    X,
+    y,
+    test_size=0.2,
+    random_state=42
+)
 
-# ---------------------------
-# SPLIT (CACHED)
-# ---------------------------
-@st.cache_data
-def split_data(df):
-    X = df.drop("target", axis=1)
-    y = df["target"]
-    return train_test_split(X, y, test_size=0.2, random_state=42)
+# ---------------------------------------------------
+# FEATURE SCALING
+# ---------------------------------------------------
 
-X_train, X_test, y_train, y_test = split_data(df)
+scaler = StandardScaler()
 
-# ---------------------------
-# SIDEBAR
-# ---------------------------
-page = st.sidebar.radio("Navigation", [
-    "⚙️ Train Model",
-    "🔮 Predict",
-    "📈 Insights"
-])
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
 
-# ---------------------------
+# ---------------------------------------------------
 # TRAIN MODEL
-# ---------------------------
-if page == "⚙️ Train Model":
+# ---------------------------------------------------
 
-    model_name = st.selectbox("Choose Model", ["KNN", "Random Forest","Decision Tree"])
+@st.cache_resource
+def train_model():
 
-    if model_name == "KNN":
-        k = st.slider("K Value", 1, 20, 5)
+    model = KNeighborsRegressor(
+        n_neighbors=5
+    )
 
-    elif model_name == "Decision Tree":
-        n = st.slider("Number of Trees", 10, 200, 100)
+    model.fit(X_train_scaled, y_train)
 
-    else:
-        n = st.slider("Number of Trees", 10, 200, 100)
+    return model
 
-    @st.cache_resource
-    def train_model(model_name, param):
-        if model_name == "KNN":
-            model = KNeighborsRegressor(n_neighbors=param)
-        elif model_name == "Decision Tree":
-            model = RandomForestRegressor(n_estimators=param)
-        else:
-            model = RandomForestRegressor(n_estimators=param)
+model = train_model()
 
-        model.fit(X_train, y_train)
-        return model
+# ---------------------------------------------------
+# PREDICTIONS
+# ---------------------------------------------------
 
-    model = train_model(model_name, k if model_name=="KNN" else n if model_name=="Decision Tree" else n)
+y_pred = model.predict(X_test_scaled)
 
-    # Save model
-    st.session_state["model"] = model
+# ---------------------------------------------------
+# SIDEBAR
+# ---------------------------------------------------
 
-    # Evaluate
-    y_pred = model.predict(X_test)
+st.sidebar.title("Navigation")
 
-    st.metric("MSE", f"{mean_squared_error(y_test, y_pred):,.2f}")
-    st.metric("MAE", f"{mean_squared_error(y_test, y_pred):,.2f}")
-    st.metric("R2 Score", f"{r2_score(y_test, y_pred):.4f}")
+page = st.sidebar.radio(
+    "Go To",
+    [
+        "Prediction",
+        "Visualizations",
+        "Model Performance",
+        "Dataset"
+    ]
+)
 
-# ---------------------------
+# ===================================================
 # PREDICTION PAGE
-# ---------------------------
-elif page == "🔮 Predict":
+# ===================================================
 
-    st.subheader("Enter Input Values")
+if page == "Prediction":
 
-    model = st.session_state.get("model")
+    st.header("House Price Prediction")
 
-    if model is None:
-        st.warning("⚠️ Train model first!")
-        st.stop()
+    st.write("Enter house details below:")
 
-    # FORM (no auto refresh)
+    feature_names = {
+        "MedInc": "Median Income",
+        "HouseAge": "House Age",
+        "AveRooms": "Average Rooms",
+        "AveBedrms": "Average Bedrooms",
+        "Population": "Population",
+        "AveOccup": "Average Occupancy",
+        "Latitude": "Latitude",
+        "Longitude": "Longitude"
+    }
+
     with st.form("prediction_form"):
 
-        age = st.number_input("Age")
-        income = st.number_input("Income")
-        loan_amount = st.number_input("Loan Amount")
-        credit_score = st.number_input("Credit Score")
-        num_transactions = st.number_input("Transactions")
-        annual_spend = st.number_input("Annual Spend")
+        col1, col2 = st.columns(2)
 
-        city = st.selectbox("City", ["Bangalore", "Hyderabad", "Delhi"])
-        employment = st.selectbox("Employment", ["Salaried", "Self-employed", "Student"])
-        loan_type = st.selectbox("Loan Type", ["Personal", "Home", "Auto"])
+        input_data = {}
 
-        submit = st.form_submit_button("Predict")
+        for i, column in enumerate(X.columns):
+
+            label = feature_names.get(column, column)
+
+            mean_value = int(X[column].mean())
+
+            if i % 2 == 0:
+
+                with col1:
+
+                    value = st.number_input(
+                        label,
+                        value=mean_value,
+                        step=1
+                    )
+
+            else:
+
+                with col2:
+
+                    value = st.number_input(
+                        label,
+                        value=mean_value,
+                        step=1
+                    )
+
+            input_data[column] = value
+
+        submit = st.form_submit_button(
+            "Predict House Price"
+        )
 
     if submit:
 
-        input_dict = {
-            "age": age,
-            "income": income,
-            "loan_amount": loan_amount,
-            "credit_score": credit_score,
-            "num_transactions": num_transactions,
-            "annual_spend": annual_spend,
-            f"city_{city}": 1,
-            f"employment_type_{employment}": 1,
-            f"loan_type_{loan_type}": 1,
-        }
+        input_df = pd.DataFrame([input_data])
 
-        input_df = pd.DataFrame([input_dict])
-        input_df = input_df.reindex(columns=X_train.columns, fill_value=0)
+        input_scaled = scaler.transform(input_df)
 
-        prediction = model.predict(input_df)[0]
+        prediction = model.predict(input_scaled)[0]
 
-        st.success(f"💰 Prediction: {prediction:,.2f}")
+        st.markdown("---")
 
-# ---------------------------
-# INSIGHTS PAGE
-# ---------------------------
-elif page == "📈 Insights":
+        st.success(
+            f"Predicted House Price: ${prediction * 100000:,.2f}"
+        )
 
-    model = RandomForestRegressor()
-    model.fit(X_train, y_train)
+# ===================================================
+# VISUALIZATION PAGE
+# ===================================================
 
-    y_pred = model.predict(X_test)
+elif page == "Visualizations":
 
-    tab1, tab2 = st.tabs(["Actual vs Predicted", "Residuals"])
+    st.header("Data Visualizations")
+
+    tab1, tab2, tab3 = st.tabs([
+        "Distribution",
+        "Correlation",
+        "Scatter Plot"
+    ])
+
+    # DISTRIBUTION
 
     with tab1:
-        fig, ax = plt.subplots()
-        ax.scatter(y_test, y_pred)
 
-        min_val = min(y_test.min(), y_pred.min())
-        max_val = max(y_test.max(), y_pred.max())
-        ax.plot([min_val, max_val], [min_val, max_val])
+        feature = st.selectbox(
+            "Select Feature",
+            X.columns
+        )
 
-        st.pyplot(fig)
+        fig1, ax1 = plt.subplots(figsize=(10, 5))
+
+        sns.histplot(
+            X[feature],
+            kde=True,
+            ax=ax1,
+            color="skyblue"
+        )
+
+        plt.title(feature)
+
+        st.pyplot(fig1)
+
+    # CORRELATION
 
     with tab2:
-        residuals = y_test - y_pred
 
-        fig, ax = plt.subplots()
-        ax.scatter(y_pred, residuals)
-        ax.axhline(0)
+        fig2, ax2 = plt.subplots(figsize=(10, 6))
 
-        st.pyplot(fig)
+        correlation = X.corr()
 
-    # Feature importance
-    importance = model.feature_importances_
+        sns.heatmap(
+            correlation,
+            cmap="Blues",
+            ax=ax2
+        )
 
-    feat_df = pd.DataFrame({
-        "Feature": X_train.columns,
-        "Importance": importance
-    }).sort_values(by="Importance", ascending=False)
+        st.pyplot(fig2)
 
-    st.subheader("Feature Importance")
-    st.bar_chart(feat_df.set_index("Feature"))
+    # SCATTER PLOT
+
+    with tab3:
+
+        x_feature = st.selectbox(
+            "Select X Axis",
+            X.columns,
+            key="x"
+        )
+
+        y_feature = st.selectbox(
+            "Select Y Axis",
+            X.columns,
+            key="y"
+        )
+
+        fig3, ax3 = plt.subplots(figsize=(8, 5))
+
+        ax3.scatter(
+            X[x_feature],
+            X[y_feature]
+        )
+
+        plt.xlabel(x_feature)
+        plt.ylabel(y_feature)
+
+        st.pyplot(fig3)
+
+# ===================================================
+# MODEL PERFORMANCE
+# ===================================================
+
+elif page == "Model Performance":
+
+    st.header("Model Performance")
+
+    mse = mean_squared_error(y_test, y_pred)
+    mae = mean_absolute_error(y_test, y_pred)
+    r2 = r2_score(y_test, y_pred)
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.metric("MSE", f"{mse:.2f}")
+
+    with col2:
+        st.metric("MAE", f"{mae:.2f}")
+
+    with col3:
+        st.metric("R2 Score", f"{r2:.2f}")
+
+    st.subheader("Actual vs Predicted")
+
+    fig4, ax4 = plt.subplots(figsize=(8, 5))
+
+    ax4.scatter(y_test, y_pred)
+
+    ax4.set_xlabel("Actual")
+    ax4.set_ylabel("Predicted")
+
+    st.pyplot(fig4)
+
+# ===================================================
+# DATASET PAGE
+# ===================================================
+
+elif page == "Dataset":
+
+    st.header("Dataset Overview")
+
+    st.subheader("Dataset Preview")
+
+    st.dataframe(X.head())
+
+    st.subheader("Dataset Shape")
+
+    st.write(f"Rows: {X.shape[0]}")
+    st.write(f"Columns: {X.shape[1]}")
+
+    st.subheader("Statistical Summary")
+
+    st.dataframe(X.describe())
+
+# ---------------------------------------------------
+# FOOTER
+# ---------------------------------------------------
+
+st.markdown("---")
+
+st.markdown(
+    """
+    <center>
+        <h4>
+            Developed using Streamlit & KNN Regression
+        </h4>
+    </center>
+    """,
+    unsafe_allow_html=True
+)
